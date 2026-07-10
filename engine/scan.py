@@ -160,3 +160,27 @@ class ScanOrchestrator:
                 backend.close()
             except Exception:
                 pass
+
+
+def scan(
+    target: str,
+    workflow: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    no_ai: bool = False,
+    verbose: bool = False,
+    keep_artifacts: bool = False,
+    scan_id: Optional[str] = None,
+) -> ScanResult:
+    """
+    Exposed functional scanner entry point.
+    """
+    orchestrator = ScanOrchestrator()
+    return orchestrator.run_scan(
+        target=target,
+        workflow=workflow,
+        output_dir=output_dir,
+        no_ai=no_ai,
+        verbose=verbose,
+        keep_artifacts=keep_artifacts,
+        scan_id=scan_id,
+    )
