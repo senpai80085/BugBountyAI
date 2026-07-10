@@ -20,6 +20,7 @@ dependencies = [
     "google-genai",
     "jinja2",
     "tenacity",
+    "rich",
     "pytest",
     "mypy",
     "ruff"

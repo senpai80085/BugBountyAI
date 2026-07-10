@@ -168,6 +168,7 @@ class WorkflowEngine:
         log_context.workflow = workflow.name
         log_context.step = "N/A"
         log_context.tool = "N/A"
+        log_context.total_steps = len(workflow.steps)
 
         logger.info(f"Workflow started: {workflow.name}")
         start_time = time.perf_counter()
@@ -179,12 +180,18 @@ class WorkflowEngine:
 
         lock = threading.Lock()
 
+        step_counter: list[int] = [0]
+
         def execute_step_with_retry(step: WorkflowStep) -> ToolResult:
             from core.logger import log_context
             log_context.scan_id = context.scan_id
             log_context.workflow = workflow.name
             log_context.step = step.tool
             log_context.tool = step.tool
+            log_context.total_steps = len(workflow.steps)
+            with lock:
+                step_counter[0] += 1
+                log_context.current_step = step_counter[0]
 
             logger.info(f"Step started: {step.tool}")
             
