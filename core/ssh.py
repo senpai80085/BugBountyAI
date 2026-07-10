@@ -135,7 +135,7 @@ class SSHClient:
                     stdout_chunks.append(data.decode(errors="replace"))
 
             while channel.recv_stderr_ready():
-                data = channel.recv_stderr(4096)
+                data = channel.recv(4096)
                 if data:
                     stderr_chunks.append(data.decode(errors="replace"))
 
@@ -217,3 +217,73 @@ class SSHClient:
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self.disconnect()
+
+
+class SSHConnectionPool:
+    """
+    Thread-safe connection pool for managing multiple SSHClient instances.
+    """
+
+    def __init__(self, size: int | None = None, max_size: int | None = None) -> None:
+        # Resolve pool size configurations
+        if size is None:
+            try:
+                self.size = int(config.get("ssh", "pool_size"))
+            except Exception:
+                self.size = 2
+        else:
+            self.size = size
+
+        if max_size is None:
+            try:
+                self.max_size = int(config.get("ssh", "max_pool_size"))
+            except Exception:
+                self.max_size = 4
+        else:
+            self.max_size = max_size
+
+        self.pool: list[SSHClient] = [SSHClient() for _ in range(self.size)]
+        self.active_count = self.size
+        self._leased: set[SSHClient] = set()
+        self.lock = threading.Lock()
+        self.cond = threading.Condition(self.lock)
+
+    def acquire(self) -> SSHClient:
+        """Acquire an SSHClient. Blocks if none are available and max_size is reached."""
+        with self.lock:
+            while True:
+                # 1. Try to get an inactive client
+                for client in self.pool:
+                    if client not in self._leased:
+                        self._leased.add(client)
+                        return client
+
+                # 2. If pool is full of leased clients, try to grow to max_size
+                if self.active_count < self.max_size:
+                    new_client = SSHClient()
+                    self.pool.append(new_client)
+                    self.active_count += 1
+                    self._leased.add(new_client)
+                    return new_client
+
+                # 3. Wait for release
+                self.cond.wait()
+
+    def release(self, client: SSHClient) -> None:
+        """Release the SSHClient back into the pool."""
+        with self.lock:
+            if client in self._leased:
+                self._leased.remove(client)
+            self.cond.notify_all()
+
+    def close_all(self) -> None:
+        """Close all connections in the pool."""
+        with self.lock:
+            for client in self.pool:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+            self.pool.clear()
+            self.active_count = 0
+            self.cond.notify_all()

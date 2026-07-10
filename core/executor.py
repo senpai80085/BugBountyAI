@@ -32,3 +32,15 @@ class Executor:
         Download a file using the delegated backend.
         """
         self.backend.download(remote, local)
+
+    def lease_client(self) -> Any:
+        """
+        Lease a client context from the underlying backend.
+        """
+        return self.backend.lease_client()
+
+    def exists(self, path: str) -> bool:
+        """
+        Check if a file/directory exists.
+        """
+        return self.backend.exists(path)

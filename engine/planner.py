@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 from core.executor import Executor
 from core.logger import logger
 from core.registry import ToolRegistry
+from core.scan_state import ScanState
 from engine.workflow import WorkflowEngine
 from memory.conversation import Conversation, Role
 from models.ai import PlanDecision
@@ -13,6 +14,7 @@ from models.capability import Capability
 from models.context import ScanContext
 from models.objective import Objective, PlanningMode
 from models.plan import Plan, PlanResult
+from models.tool import ToolResult
 from providers.base import AIProvider
 
 
@@ -35,12 +37,19 @@ class Planner:
         self.provider = provider
         self.executor = executor
 
-    def run(self, objective: Objective, context: ScanContext) -> PlanResult:
+    def run(
+        self,
+        objective: Objective,
+        context: ScanContext,
+        scan_state: Optional[ScanState] = None,
+        step_callback: Optional[Callable[[str, ToolResult], None]] = None,
+    ) -> PlanResult:
         """
         Execute the entire planning and scanning workflow pipeline.
         Always returns a valid PlanResult and never raises exceptions to the caller.
         """
         plan_start_time = time.perf_counter()
+
         
         # Default empty plan definition in case planning fails early
         failed_plan = Plan(
@@ -141,7 +150,9 @@ class Planner:
 
             # 5. Execute Workflow
             exec_start_time = time.perf_counter()
-            results = self.workflow_engine.run(workflow, context)
+            results = self.workflow_engine.run(
+                workflow, context, scan_state=scan_state, step_callback=step_callback
+            )
             actual_duration = time.perf_counter() - exec_start_time
 
             success = all(r.success for r in results) if results else False

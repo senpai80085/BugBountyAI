@@ -1,9 +1,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from models.finding import Finding
 from models.artifact import Artifact
+from models.metrics import ScanMetrics
+
+
 
 if TYPE_CHECKING:
     from models.plan import PlanResult
@@ -55,3 +58,5 @@ class ScanResult:
     plan_result: "PlanResult"
     analysis_result: AnalysisResult
     artifacts: list[Artifact] = field(default_factory=list)
+    metrics: Optional[ScanMetrics] = None
+

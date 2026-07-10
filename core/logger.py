@@ -16,12 +16,28 @@ import logging
 import threading
 import time
 from pathlib import Path
+from typing import Any
+
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 # Thread-local storage for scan log context
 log_context = threading.local()
+
+_active_dashboard: Any = None
+_dashboard_lock = threading.Lock()
+
+def set_dashboard(dashboard: Any) -> None:
+    global _active_dashboard
+    with _dashboard_lock:
+        _active_dashboard = dashboard
+
+def get_dashboard() -> Any:
+    global _active_dashboard
+    with _dashboard_lock:
+        return _active_dashboard
+
 
 
 # ---------------------------------------------------------------------------
@@ -75,19 +91,22 @@ try:
 
         def __init__(self) -> None:
             super().__init__()
-            # Windows defaults stdout to cp1252 which cannot encode Unicode
-            # icons. Wrap the raw buffer in a UTF-8 TextIOWrapper so Rich can
-            # safely write spinner frames, check marks, and emoji.
             import io
             import sys
 
-            if hasattr(sys.stdout, "buffer"):
-                console_file = io.TextIOWrapper(
-                    sys.stdout.buffer,
-                    encoding="utf-8",
-                    errors="replace",
-                    line_buffering=True,
-                )
+            is_pytest = "pytest" in sys.modules
+            is_utf8 = getattr(sys.stdout, "encoding", "").lower() in ("utf-8", "utf8")
+
+            if hasattr(sys.stdout, "buffer") and not is_pytest and not is_utf8:
+                try:
+                    console_file = io.TextIOWrapper(
+                        sys.stdout.buffer,
+                        encoding="utf-8",
+                        errors="replace",
+                        line_buffering=True,
+                    )
+                except Exception:
+                    console_file = sys.stdout  # type: ignore[assignment]
             else:
                 console_file = sys.stdout  # type: ignore[assignment]
             self.console = Console(file=console_file, highlight=False)
@@ -119,9 +138,14 @@ try:
                 else:
                     line.append(display_msg, style=style)
 
-                self.console.print(line)
+                dashboard = get_dashboard()
+                if dashboard is not None:
+                    dashboard.add_log(line)
+                else:
+                    self.console.print(line)
             except Exception:
                 self.handleError(record)
+
 
         # -- helpers ---------------------------------------------------------
 

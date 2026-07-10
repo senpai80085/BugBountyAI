@@ -22,23 +22,24 @@ class ArtifactManager:
         self.scan_id = scan_id
         self.remote_workspace = f"/tmp/bugbounty/{scan_id}"
         self.artifacts: dict[str, Artifact] = {}
+        self._downloaded_checksums: set[str] = set()
 
     def create_workspace(self) -> None:
         """
         Create the unique remote workspace directories via the Executor.
         """
         logger.info(f"[{self.scan_id}] Creating remote workspace directories under: {self.remote_workspace}")
-        # Run mkdir -p for the main workspace and artifacts subdirectory
         cmd = Command(executable="mkdir", args=["-p", f"{self.remote_workspace}/artifacts"])
         self.executor.run(cmd)
 
     def register_artifact(self, artifact_type: str, filename: str, remote_path: str) -> Artifact:
         """
         Register a remote file artifact, dynamically calculating size and checksum via Executor.
+        Skips sha256sum for empty files to avoid wasted SSH round-trips.
         """
         artifact_id = str(uuid.uuid4())
-        
-        # Calculate remote file size using wc -c or stat
+
+        # Calculate remote file size using stat
         size = 0
         size_cmd = Command(executable="stat", args=["-c", "%s", remote_path])
         res_size = self.executor.run(size_cmd)
@@ -48,14 +49,15 @@ class ArtifactManager:
             except ValueError:
                 pass
 
-        # Calculate SHA256 checksum remotely
+        # Skip sha256sum for empty files
         checksum = ""
-        chk_cmd = Command(executable="sha256sum", args=[remote_path])
-        res_chk = self.executor.run(chk_cmd)
-        if res_chk.exit_code == 0:
-            parts = res_chk.stdout.split()
-            if parts:
-                checksum = parts[0].strip()
+        if size > 0:
+            chk_cmd = Command(executable="sha256sum", args=[remote_path])
+            res_chk = self.executor.run(chk_cmd)
+            if res_chk.exit_code == 0:
+                parts = res_chk.stdout.split()
+                if parts:
+                    checksum = parts[0].strip()
 
         artifact = Artifact(
             id=artifact_id,
@@ -74,16 +76,31 @@ class ArtifactManager:
     def download_artifact(self, artifact_id: str, local_dir: str) -> Artifact:
         """
         Download the registered artifact to the local host and update its local_path.
+        Skips empty files and files with duplicate checksums (already downloaded).
         """
         artifact = self.artifacts.get(artifact_id)
         if not artifact:
             raise KeyError(f"No artifact registered with ID: {artifact_id}")
 
+        # Skip empty files
+        if artifact.size == 0:
+            logger.info(f"[{self.scan_id}] Skipping empty artifact: {artifact.filename}")
+            return artifact
+
+        # Skip duplicate checksum files
+        if artifact.checksum and artifact.checksum in self._downloaded_checksums:
+            logger.info(f"[{self.scan_id}] Skipping duplicate artifact: {artifact.filename} (checksum already downloaded)")
+            return artifact
+
         os.makedirs(local_dir, exist_ok=True)
         local_path = str(Path(local_dir) / artifact.filename)
-        
+
         logger.info(f"[{self.scan_id}] Downloading remote artifact {artifact.remote_path} -> {local_path}")
         self.executor.download(artifact.remote_path, local_path)
+
+        # Track downloaded checksums
+        if artifact.checksum:
+            self._downloaded_checksums.add(artifact.checksum)
 
         # Update artifact local path using replace
         from dataclasses import replace

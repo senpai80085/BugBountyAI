@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import concurrent.futures
 import re
 import threading
 import time
-from typing import Any
+from typing import Any, Callable, Optional
 import yaml
 
 from core.config import BASE_DIR
 from core.executor import Executor
-from core.logger import logger
+from core.logger import logger, get_dashboard
 from core.registry import ToolRegistry
 from core.command import Command
+from core.scan_state import ScanState
 from models.context import ScanContext
 from models.tool import ToolResult
 from models.workflow import Workflow, WorkflowStep
@@ -158,10 +161,16 @@ class WorkflowEngine:
 
         return Workflow(name=data["name"], steps=steps)
 
-    def run(self, workflow: Workflow, context: ScanContext) -> list[ToolResult]:
+    def run(
+        self,
+        workflow: Workflow,
+        context: ScanContext,
+        scan_state: ScanState | None = None,
+        step_callback: Optional[Callable[[str, ToolResult], None]] = None,
+    ) -> list[ToolResult]:
         """
         Execute workflow steps supporting parallel execution, timeouts, retries,
-        and continuous updates to the ScanContext results dict.
+        continuous updates to the ScanContext results dict, and resumable checkpoint checks.
         """
         from core.logger import log_context
         log_context.scan_id = context.scan_id
@@ -169,6 +178,12 @@ class WorkflowEngine:
         log_context.step = "N/A"
         log_context.tool = "N/A"
         log_context.total_steps = len(workflow.steps)
+
+        dashboard = get_dashboard()
+        if dashboard:
+            dashboard.set_total_steps(len(workflow.steps))
+            for step in workflow.steps:
+                dashboard.update_step(step.tool, "pending")
 
         logger.info(f"Workflow started: {workflow.name}")
         start_time = time.perf_counter()
@@ -179,8 +194,42 @@ class WorkflowEngine:
         running: set[str] = set()
 
         lock = threading.Lock()
-
         step_counter: list[int] = [0]
+
+        # 1. Transitive Invalidation for Resuming
+        invalidated_steps: set[str] = set()
+        if scan_state is not None:
+            for step in workflow.steps:
+                if step.tool in scan_state.completed_steps:
+                    if not scan_state.verify_artifacts(step.tool, self.executor):
+                        logger.info(f"Step '{step.tool}' is missing remote artifacts. Invalidating and downstream.")
+                        invalidated_steps.add(step.tool)
+                        # Find downstream steps recursively
+                        queue = [step.tool]
+                        while queue:
+                            curr = queue.pop(0)
+                            for s in workflow.steps:
+                                if curr in s.depends_on and s.tool not in invalidated_steps:
+                                    invalidated_steps.add(s.tool)
+                                    queue.append(s.tool)
+
+            for tool in invalidated_steps:
+                if tool in scan_state.completed_steps:
+                    del scan_state.completed_steps[tool]
+
+        # 2. Populate Completed Resumed Steps
+        if scan_state is not None:
+            for step in workflow.steps:
+                if step.tool in scan_state.completed_steps:
+                    res = scan_state.deserialize_result(step.tool)
+                    if res:
+                        context.set_result(step.tool, res)
+                        all_results.append(res)
+                        completed.add(step.tool)
+                        logger.info(f"Resumed completed step: {step.tool}")
+                        if dashboard:
+                            dashboard.update_step(step.tool, "completed", res.duration)
+                            self._extract_stats(step.tool, res, dashboard)
 
         def execute_step_with_retry(step: WorkflowStep) -> ToolResult:
             from core.logger import log_context
@@ -194,6 +243,8 @@ class WorkflowEngine:
                 log_context.current_step = step_counter[0]
 
             logger.info(f"Step started: {step.tool}")
+            if dashboard:
+                dashboard.update_step(step.tool, "running")
             
             resolved_args = {}
             for k, v in step.args.items():
@@ -212,12 +263,14 @@ class WorkflowEngine:
 
                 step_start_time = time.perf_counter()
                 try:
-                    if timeout is not None:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_exec:
-                            fut = single_exec.submit(tool_instance.execute, self.executor, **resolved_args)
-                            last_res = fut.result(timeout=timeout)
-                    else:
-                        last_res = tool_instance.execute(self.executor, **resolved_args)
+                    # Lease exclusive connection for the thread duration
+                    with self.executor.lease_client():
+                        if timeout is not None:
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as single_exec:
+                                fut = single_exec.submit(tool_instance.execute, self.executor, **resolved_args)
+                                last_res = fut.result(timeout=timeout)
+                        else:
+                            last_res = tool_instance.execute(self.executor, **resolved_args)
 
                     if last_res.success:
                         logger.info(f"Step completed: {step.tool} in {last_res.duration:.2f}s")
@@ -284,6 +337,8 @@ class WorkflowEngine:
                         logger.error(f"Step '{step.tool}' is blocked by failed dependency.")
                         with lock:
                             failed.add(step.tool)
+                        if dashboard:
+                            dashboard.update_step(step.tool, "failed")
                         continue
 
                     if deps_ok:
@@ -316,21 +371,55 @@ class WorkflowEngine:
                         # Thread-safe context update
                         context.set_result(tool_name, result)
 
+                        # Accumulate tool execution time metric
+                        if hasattr(self.executor, "metrics") and self.executor.metrics is not None:
+                            self.executor.metrics.add_tool_execution_time(result.duration)
+
                         if result.success:
                             with lock:
                                 completed.add(tool_name)
+                            if dashboard:
+                                dashboard.update_step(tool_name, "completed", result.duration)
+                                self._extract_stats(tool_name, result, dashboard)
                         else:
                             if step.continue_on_error:
                                 with lock:
                                     completed.add(tool_name)
+                                if dashboard:
+                                    dashboard.update_step(tool_name, "completed", result.duration)
+                                    self._extract_stats(tool_name, result, dashboard)
                             else:
                                 with lock:
                                     failed.add(tool_name)
+                                if dashboard:
+                                    dashboard.update_step(tool_name, "failed", result.duration)
+
+                        # Trigger continuous report/state saving callback
+                        if step_callback:
+                            step_callback(tool_name, result)
+
                     except Exception as e:
                         logger.error(f"Execution thread raised critical exception for '{tool_name}': {e}")
                         with lock:
                             failed.add(tool_name)
+                        if dashboard:
+                            dashboard.update_step(tool_name, "failed")
 
         workflow_duration = time.perf_counter() - start_time
         logger.info(f"Workflow completed: {workflow.name} in {workflow_duration:.2f}s")
         return all_results
+
+    def _extract_stats(self, tool_name: str, result: ToolResult, dashboard: Any) -> None:
+        """Extract tool statistics dynamically from parsed ToolResult metadata."""
+        if not result.success:
+            return
+        if tool_name == "subfinder":
+            dashboard.update_stat("Subdomains", len(result.metadata.get("subdomains", [])))
+        elif tool_name == "httpx":
+            dashboard.update_stat("Alive", len(result.metadata.get("endpoints", [])))
+        elif tool_name == "naabu":
+            dashboard.update_stat("Ports", len(result.metadata.get("ports", [])))
+        elif tool_name == "katana":
+            dashboard.update_stat("URLs", len(result.metadata.get("urls", [])))
+        elif tool_name == "nuclei":
+            dashboard.update_stat("Findings", len(result.metadata.get("vulnerabilities", [])))
