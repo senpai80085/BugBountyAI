@@ -32,7 +32,7 @@ def test_ssh_backend_run():
     assert res.exit_code == 0
     assert res.stdout == "kali\n"
     assert res.command == "whoami"
-    mock_client.execute.assert_called_once_with("whoami")
+    mock_client.execute.assert_called_once_with("export PATH=$PATH:/home/kali/go/bin; whoami")
 
 
 def test_ssh_backend_file_operations():

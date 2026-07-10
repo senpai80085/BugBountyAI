@@ -1,7 +1,9 @@
+import os
 from typing import Any
 
 from core.command import Command
-from models.tool import ToolMetadata
+from core.executor import Executor
+from models.tool import ToolMetadata, ToolResult
 from tools.base import Tool
 
 
@@ -53,3 +55,46 @@ class SubfinderTool(Tool):
             if line:
                 subdomains.append(line)
         return {"subdomains": subdomains}
+
+    def execute(self, executor: Executor, **kwargs: Any) -> ToolResult:
+        """
+        Execute subfinder, checking for 0 subdomains. If 0 results are found,
+        creates 'alive_input.txt' with the target domain as a fallback.
+        """
+        result = super().execute(executor, **kwargs)
+
+        if result.success:
+            subdomains = result.metadata.get("subdomains", [])
+            if not subdomains:
+                domain = kwargs.get("domain", "")
+                output_file = kwargs.get("output_file")
+                if output_file:
+                    parent_dir = os.path.dirname(output_file)
+                    fallback_remote_path = os.path.join(parent_dir, "alive_input.txt").replace("\\", "/")
+
+                    # Create fallback file on remote containing the original target
+                    echo_cmd = Command(
+                        executable="bash",
+                        args=["-c", f"echo '{domain}' > '{fallback_remote_path}'"]
+                    )
+                    executor.run(echo_cmd)
+
+                    # Register fallback artifact
+                    if getattr(executor, "artifact_manager", None) is not None:
+                        filename = os.path.basename(fallback_remote_path)
+                        fallback_artifact = executor.artifact_manager.register_artifact(
+                            artifact_type=self.metadata.name,
+                            filename=filename,
+                            remote_path=fallback_remote_path
+                        )
+                        return ToolResult(
+                            command=result.command,
+                            success=result.success,
+                            exit_code=result.exit_code,
+                            stdout=result.stdout,
+                            stderr=result.stderr,
+                            duration=result.duration,
+                            artifacts=[fallback_artifact],
+                            metadata=result.metadata,
+                        )
+        return result

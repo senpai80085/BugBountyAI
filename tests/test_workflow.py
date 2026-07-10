@@ -226,7 +226,7 @@ def test_variable_interpolation(test_registry, mock_executor):
         name="interp",
         steps=[
             WorkflowStep(tool="tool_a", args={"domain": "{{ target }}"}),
-            WorkflowStep(tool="tool_b", args={"imported": "{{ tool_a.data_a }}"})
+            WorkflowStep(tool="tool_b", args={"imported": "{{ tool_a.data_a }}"}, depends_on=["tool_a"])
         ]
     )
 

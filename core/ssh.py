@@ -75,24 +75,73 @@ class SSHClient:
     def execute(self, command: str) -> dict[str, Any]:
         """
         Execute command on the remote host and return command outcome.
+        Streams stdout/stderr in real-time, logging lines continuously.
         Protected by self.lock to ensure thread-safe socket usage.
         """
+        import time
+
         with self.lock:
             self.connect()
             logger.info(command)
 
             assert self.client is not None
-            _, stdout, stderr = self.client.exec_command(
+            stdin, stdout, stderr = self.client.exec_command(
                 command,
                 timeout=self.timeout,
             )
+            stdin.close()
+            channel = stdout.channel
 
-            exit_code = stdout.channel.recv_exit_status()
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
+
+            # Stream output while the process is running
+            while not channel.exit_status_ready():
+                if channel.recv_ready():
+                    data = channel.recv(4096)
+                    if data:
+                        decoded = data.decode(errors="replace")
+                        stdout_chunks.append(decoded)
+                        for line in decoded.splitlines():
+                            if line.strip():
+                                logger.info(line)
+
+                if channel.recv_stderr_ready():
+                    data = channel.recv_stderr(4096)
+                    if data:
+                        decoded = data.decode(errors="replace")
+                        stderr_chunks.append(decoded)
+                        for line in decoded.splitlines():
+                            if line.strip():
+                                logger.error(line)
+
+                time.sleep(0.1)
+
+            # Flush any remaining data in the buffers after exit status is ready
+            while channel.recv_ready():
+                data = channel.recv(4096)
+                if data:
+                    decoded = data.decode(errors="replace")
+                    stdout_chunks.append(decoded)
+                    for line in decoded.splitlines():
+                        if line.strip():
+                            logger.info(line)
+
+            while channel.recv_stderr_ready():
+                data = channel.recv_stderr(4096)
+                if data:
+                    decoded = data.decode(errors="replace")
+                    stderr_chunks.append(decoded)
+                    for line in decoded.splitlines():
+                        if line.strip():
+                            logger.error(line)
+
+            exit_code = channel.recv_exit_status()
 
             return {
                 "command": command,
-                "stdout": stdout.read().decode(),
-                "stderr": stderr.read().decode(),
+                "stdout": "".join(stdout_chunks),
+                "stderr": "".join(stderr_chunks),
                 "exit_code": exit_code,
             }
 

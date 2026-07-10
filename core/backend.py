@@ -55,9 +55,11 @@ class SSHBackend(ExecutionBackend):
 
     def run(self, command: Command) -> ExecutionResult:
         cmd_str = command.shell_escape()
-        res = self.client.execute(cmd_str)
+        # Prepend Go bin path to ensure all installed tools are reachable
+        full_cmd = f"export PATH=$PATH:/home/kali/go/bin; {cmd_str}"
+        res = self.client.execute(full_cmd)
         return ExecutionResult(
-            command=res.get("command", cmd_str),
+            command=cmd_str,
             stdout=res.get("stdout", ""),
             stderr=res.get("stderr", ""),
             exit_code=res.get("exit_code", -1),
