@@ -1,5 +1,4 @@
 from unittest.mock import MagicMock, patch
-import pytest
 from core.backend import SSHBackend, LocalBackend, ExecutionResult
 from core.command import Command
 from core.executor import Executor

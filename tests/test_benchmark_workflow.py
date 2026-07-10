@@ -6,7 +6,7 @@ from core.executor import Executor
 from core.registry import ToolRegistry
 from engine.workflow import WorkflowEngine
 from models.context import ScanContext
-from models.tool import ToolMetadata, ToolResult
+from models.tool import ToolMetadata
 from models.workflow import Workflow, WorkflowStep
 from tools.base import Tool
 
@@ -75,6 +75,6 @@ def test_benchmark_100_tools_scaling():
     # 4. Assertions
     assert len(results) == 100
     assert results[99].command.executable == "bench_tool_100"
-    assert context.results["bench_tool_100"].success is True
+    assert context.get_result("bench_tool_100").success is True
     # Benchmark target: 100 mock tools must process in less than 2.0 seconds
     assert total_duration < 2.0

@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import shutil
 import subprocess
-from typing import Any
 
 from core.command import Command
 from core.ssh import SSHClient

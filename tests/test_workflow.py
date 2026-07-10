@@ -1,4 +1,3 @@
-import concurrent.futures
 import time
 from unittest.mock import MagicMock, patch
 import pytest
@@ -128,8 +127,8 @@ def test_sequential_workflow(test_registry, mock_executor):
     assert len(results) == 2
     assert results[0].command.executable == "tool_a"
     assert results[1].command.executable == "tool_b"
-    assert context.results["tool_a"].metadata == {"data_a": "parsed_a"}
-    assert context.results["tool_b"].metadata == {"data_b": "parsed_b"}
+    assert context.get_result("tool_a").metadata == {"data_a": "parsed_a"}
+    assert context.get_result("tool_b").metadata == {"data_b": "parsed_b"}
 
 
 def test_parallel_workflow(test_registry, mock_executor):
@@ -215,7 +214,7 @@ def test_dependency_ordering(test_registry, mock_executor):
 
     results = engine.run(workflow, context)
     assert len(results) == 1  # tool_a did not run because tool_fail failed
-    assert "tool_a" not in context.results
+    assert context.get_result("tool_a") is None
 
 
 def test_variable_interpolation(test_registry, mock_executor):
@@ -234,7 +233,7 @@ def test_variable_interpolation(test_registry, mock_executor):
     results = engine.run(workflow, context)
     assert len(results) == 2
     # Verify that tool_b ran with resolved value from tool_a
-    assert context.results["tool_b"].command.args == [] # default mock args
+    assert context.get_result("tool_b").command.args == [] # default mock args
     # Verify lookup_path inside run resolved args correctly
     assert results[1].success is True
 

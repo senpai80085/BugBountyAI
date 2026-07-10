@@ -1,4 +1,16 @@
 from dataclasses import dataclass
+from enum import Enum
+
+
+class Severity(str, Enum):
+    """
+    Vulnerability and discovery severity levels.
+    """
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 @dataclass(frozen=True)
@@ -9,5 +21,5 @@ class Finding:
     tool: str
     target: str
     data: dict
-    severity: str  # "info", "low", "medium", "high", "critical"
+    severity: Severity
     description: str

@@ -1,9 +1,8 @@
 import concurrent.futures
-import importlib
 import re
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 import yaml
 
 from core.config import BASE_DIR
@@ -48,10 +47,12 @@ def lookup_path(path_str: str, context: ScanContext) -> Any:
 
     parts = path_str.split(".")
     tool_name = parts[0]
-    if tool_name not in context.results:
+    
+    # Thread-safe context query
+    result = context.get_result(tool_name)
+    if result is None:
         raise ValueError(f"Value reference '{path_str}' refers to tool '{tool_name}' which has not executed yet.")
 
-    result = context.results[tool_name]
     if len(parts) == 1:
         return result
 
@@ -130,7 +131,6 @@ class WorkflowEngine:
                 raise ValueError("Invalid workflow structure: step is missing 'tool' field.")
 
             tool_name = step_data["tool"]
-            # Validate tool presence in the registry
             try:
                 self.registry.get(tool_name)
             except KeyError:
@@ -172,7 +172,6 @@ class WorkflowEngine:
         def execute_step_with_retry(step: WorkflowStep) -> ToolResult:
             logger.info(f"Step started: {step.tool}")
             
-            # Resolve step arguments using the scan context
             resolved_args = {}
             for k, v in step.args.items():
                 resolved_args[k] = resolve_val(v, context)
@@ -208,7 +207,7 @@ class WorkflowEngine:
                         exit_code=-9,
                         stdout="",
                         stderr=f"Step timed out after {timeout}s",
-                        duration=float(timeout),
+                        duration=float(timeout) if timeout is not None else 0.0,
                         artifacts=[],
                         metadata={"error": "timeout"},
                     )
@@ -226,6 +225,17 @@ class WorkflowEngine:
                     )
 
             logger.error(f"Step failed: {step.tool}")
+            if last_res is None:
+                last_res = ToolResult(
+                    command=tool_instance.build(**resolved_args) if hasattr(tool_instance, "build") else Command(executable=step.tool),
+                    success=False,
+                    exit_code=-1,
+                    stdout="",
+                    stderr="Step failed with no execution attempt",
+                    duration=0.0,
+                    artifacts=[],
+                    metadata={"error": "no attempt made"},
+                )
             return last_res
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
@@ -237,12 +247,10 @@ class WorkflowEngine:
                     if step.tool in completed or step.tool in failed or step.tool in running:
                         continue
 
-                    # Check if all dependencies have been met
                     deps_ok = True
                     dep_failed = False
                     for dep in step.depends_on:
                         if dep in failed:
-                            # A required dependency failed; this blocks current step execution
                             dep_failed = True
                             break
                         if dep not in completed:
@@ -271,7 +279,6 @@ class WorkflowEngine:
                         break
                     break
 
-                # Block until at least one step completes
                 done, _ = concurrent.futures.wait(futures.keys(), return_when=concurrent.futures.FIRST_COMPLETED)
                 for fut in done:
                     step = futures.pop(fut)
@@ -282,14 +289,15 @@ class WorkflowEngine:
                     try:
                         result = fut.result()
                         all_results.append(result)
-                        context.results[tool_name] = result
+                        
+                        # Thread-safe context update
+                        context.set_result(tool_name, result)
 
                         if result.success:
                             with lock:
                                 completed.add(tool_name)
                         else:
                             if step.continue_on_error:
-                                # Treat as completed so dependent downstream steps are not blocked
                                 with lock:
                                     completed.add(tool_name)
                             else:

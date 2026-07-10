@@ -1,8 +1,4 @@
 import pytest
-from unittest.mock import MagicMock
-from core.backend import ExecutionResult
-from core.command import Command
-from models.tool import ToolResult
 from tools.httpx import HttpxTool
 
 

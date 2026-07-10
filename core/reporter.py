@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 
 from models.context import ScanContext
 from models.report import AnalysisResult, ReportMetadata, ScanReport

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Any
+import threading
+from typing import Any, Optional
 
 from models.tool import ToolResult
 
@@ -8,7 +9,7 @@ from models.tool import ToolResult
 class ScanContext:
     """
     State context passed across layers (Planner, Workflow, Analyst, Reporter).
-    Never pass raw dictionaries between modules.
+    Thread-safe accessors are provided to secure concurrent modifications.
     """
     target: str
     workspace: str
@@ -18,3 +19,33 @@ class ScanContext:
     shared_results: dict[str, Any] = field(default_factory=dict)
     results: dict[str, ToolResult] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def set_variable(self, key: str, value: Any) -> None:
+        """
+        Set a variable value thread-safely.
+        """
+        with self._lock:
+            self.variables[key] = value
+
+    def get_variable(self, key: str, default: Any = None) -> Any:
+        """
+        Get a variable value thread-safely.
+        """
+        with self._lock:
+            return self.variables.get(key, default)
+
+    def set_result(self, tool_name: str, result: ToolResult) -> None:
+        """
+        Store a ToolResult thread-safely.
+        """
+        with self._lock:
+            self.results[tool_name] = result
+
+    def get_result(self, tool_name: str) -> Optional[ToolResult]:
+        """
+        Retrieve a ToolResult thread-safely.
+        """
+        with self._lock:
+            return self.results.get(tool_name)

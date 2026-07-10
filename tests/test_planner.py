@@ -1,10 +1,7 @@
 from unittest.mock import MagicMock
-from core.executor import Executor
-from core.registry import ToolRegistry
 from engine.planner import Planner
 from models.context import ScanContext
 from models.plan import Plan
-from providers.base import AIProvider
 
 
 def test_planner_interface():
