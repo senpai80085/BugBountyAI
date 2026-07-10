@@ -53,12 +53,19 @@ class SSHClient:
     def disconnect(self) -> None:
         """
         Close active SFTP channel and SSH connection.
+        Suppresses OSError from paramiko channel-close race on Windows.
         """
         if self.sftp:
-            self.sftp.close()
+            try:
+                self.sftp.close()
+            except (OSError, EOFError):
+                pass
 
         if self.client:
-            self.client.close()
+            try:
+                self.client.close()
+            except (OSError, EOFError):
+                pass
 
         self.client = None
         self.sftp = None

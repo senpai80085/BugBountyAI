@@ -9,27 +9,54 @@ LOG_DIR.mkdir(exist_ok=True)
 log_context = threading.local()
 
 
-class ContextFilter(logging.Filter):
-    """
-    Filter to inject scan_id, workflow, step, and tool from thread-local log_context into every LogRecord.
-    """
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.scan_id = getattr(log_context, "scan_id", "N/A")
-        record.workflow = getattr(log_context, "workflow", "N/A")
-        record.step = getattr(log_context, "step", "N/A")
-        record.tool = getattr(log_context, "tool", "N/A")
-        return True
+# ---------------------------------------------------------------------------
+# Fix #1 — LogRecordFactory injects defaults into EVERY record globally
+# ---------------------------------------------------------------------------
+_old_factory = logging.getLogRecordFactory()
 
 
-# Configure logging format with context placeholders
+def _record_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
+    record = _old_factory(*args, **kwargs)
+    record.scan_id = getattr(log_context, "scan_id", "-")
+    record.workflow = getattr(log_context, "workflow", "-")
+    record.step = getattr(log_context, "step", "-")
+    record.tool = getattr(log_context, "tool", "-")
+    return record
+
+
+logging.setLogRecordFactory(_record_factory)
+
+
+# ---------------------------------------------------------------------------
+# Fix #2 — Dedicated "bugbounty" logger, NOT the root logger
+# ---------------------------------------------------------------------------
+_fmt = (
+    "%(asctime)s | %(levelname)s | "
+    "[%(scan_id)s][%(workflow)s][%(step)s][%(tool)s] | "
+    "%(message)s"
+)
+
+logger = logging.getLogger("bugbounty")
+logger.setLevel(logging.DEBUG)
+logger.propagate = False  # never bubble into root
+
 handler_file = logging.FileHandler(LOG_DIR / "bugbounty.log", encoding="utf-8")
 handler_stream = logging.StreamHandler()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | [%(scan_id)s][%(workflow)s][%(step)s][%(tool)s] | %(message)s",
-    handlers=[handler_file, handler_stream],
-)
+handler_file.setFormatter(logging.Formatter(_fmt))
+handler_stream.setFormatter(logging.Formatter(_fmt))
 
-logger = logging.getLogger("BugBountyAI")
-logger.addFilter(ContextFilter())
+handler_file.setLevel(logging.DEBUG)
+handler_stream.setLevel(logging.INFO)
+
+logger.addHandler(handler_file)
+logger.addHandler(handler_stream)
+
+
+# ---------------------------------------------------------------------------
+# Fix #4 — Silence noisy third-party loggers
+# ---------------------------------------------------------------------------
+logging.getLogger("paramiko").setLevel(logging.WARNING)
+logging.getLogger("paramiko.transport").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("google").setLevel(logging.WARNING)
