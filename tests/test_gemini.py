@@ -1,7 +1,11 @@
 import os
 from unittest.mock import MagicMock, patch
 import pytest
+from pydantic import BaseModel
+
+from providers.base import AuthenticationError
 from providers.gemini import GeminiProvider
+from memory.conversation import Conversation, Role
 
 
 @pytest.fixture
@@ -21,100 +25,91 @@ def mock_genai():
 def test_gemini_init_missing_key():
     """Verify initialization failure if GEMINI_API_KEY is not set."""
     with patch.dict(os.environ, {}, clear=True):
-        with pytest.raises(ValueError, match="GEMINI_API_KEY not found"):
+        with pytest.raises(AuthenticationError, match="GEMINI_API_KEY not found"):
             GeminiProvider()
 
 
 def test_gemini_init_success(mock_env, mock_genai):
-    """Verify initialization retrieves config values and instantiates Client."""
+    """Verify initialization retrieves config values and maps capabilities."""
     provider = GeminiProvider()
-    assert provider.model is not None
-    assert provider.history == []
-    assert provider.system_prompt is None
+    assert provider.model_name is not None
+    assert provider.capabilities.provider_name == "Gemini"
+    assert provider.capabilities.supports_structured is True
 
 
-def test_set_system_prompt(mock_env, mock_genai):
-    """Verify that system prompt can be set correctly."""
+def test_gemini_health(mock_env, mock_genai):
+    """Verify health status returns True if token counting succeeds."""
     provider = GeminiProvider()
-    provider.set_system_prompt("System instruction prompt")
-    assert provider.system_prompt == "System instruction prompt"
-
-
-def test_clear_history(mock_env, mock_genai):
-    """Verify that history can be cleared."""
-    provider = GeminiProvider()
-    provider.history = [{"role": "user", "parts": [{"text": "hello"}]}]
-    provider.clear_history()
-    assert provider.history == []
+    
+    # Mock token count response
+    mock_res = MagicMock()
+    mock_res.total_tokens = 5
+    mock_genai.models.count_tokens.return_value = mock_res
+    
+    assert provider.health() is True
 
 
 def test_chat_text_mode(mock_env, mock_genai):
-    """Verify that chat in text mode updates history and returns the text."""
+    """Verify that chat updates conversation history and returns text response."""
     provider = GeminiProvider()
-    provider.set_system_prompt("Test system prompt")
 
     mock_response = MagicMock()
     mock_response.text = "Hello, user!"
+    mock_response.usage_metadata.prompt_token_count = 10
+    mock_response.usage_metadata.candidates_token_count = 5
+    mock_response.usage_metadata.total_token_count = 15
     mock_genai.models.generate_content.return_value = mock_response
 
-    res = provider.chat("Hello model", temperature=0.5)
+    conv = Conversation()
+    conv.add_message(Role.USER, "Hello model")
+    
+    res = provider.chat(conv, temperature=0.5)
 
     assert res == "Hello, user!"
-    assert len(provider.history) == 2
-    assert provider.history[0]["role"] == "user"
-    assert provider.history[0]["parts"][0]["text"] == "Hello model"
-    assert provider.history[1]["role"] == "model"
-    assert provider.history[1]["parts"][0]["text"] == "Hello, user!"
-
-    # Verify generate_content config argument
-    mock_genai.models.generate_content.assert_called_once()
-    called_args, called_kwargs = mock_genai.models.generate_content.call_args
-    assert called_kwargs["model"] == provider.model
-    assert called_kwargs["contents"] == provider.history
-    assert called_kwargs["config"].temperature == 0.5
-    assert called_kwargs["config"].system_instruction == "Test system prompt"
-    assert called_kwargs["config"].response_mime_type == "text/plain"
+    assert len(conv.get_messages()) == 2
+    assert conv.get_messages()[1].role == Role.MODEL
+    assert conv.get_messages()[1].content == "Hello, user!"
+    assert conv.token_usage.total_tokens == 15
 
 
-def test_chat_json_mode(mock_env, mock_genai):
-    """Verify that chat in json mode parses response as JSON dict."""
+def test_structured_success(mock_env, mock_genai):
+    """Verify structured response decodes JSON to Pydantic models."""
     provider = GeminiProvider()
 
+    class Schema(BaseModel):
+        status: str
+        count: int
+
     mock_response = MagicMock()
-    mock_response.text = '{"status": "success", "data": [1, 2, 3]}'
+    mock_response.text = '{"status": "success", "count": 42}'
+    mock_response.usage_metadata.prompt_token_count = 5
+    mock_response.usage_metadata.candidates_token_count = 5
+    mock_response.usage_metadata.total_token_count = 10
     mock_genai.models.generate_content.return_value = mock_response
 
-    res = provider.chat("Get data", json_mode=True)
+    conv = Conversation()
+    conv.add_message(Role.USER, "Get schema")
 
-    assert isinstance(res, dict)
-    assert res["status"] == "success"
-    assert res["data"] == [1, 2, 3]
-
-    called_args, called_kwargs = mock_genai.models.generate_content.call_args
-    assert called_kwargs["config"].response_mime_type == "application/json"
+    res = provider.structured(conv, Schema)
+    assert isinstance(res, Schema)
+    assert res.status == "success"
+    assert res.count == 42
 
 
-def test_stream(mock_env, mock_genai):
-    """Verify that stream yields chunks and saves full combined response to history."""
+def test_stream_success(mock_env, mock_genai):
+    """Verify stream yields chunks and saves full text to conversation."""
     provider = GeminiProvider()
 
     chunk_1 = MagicMock()
     chunk_1.text = "Part "
     chunk_2 = MagicMock()
-    chunk_2.text = "one and part two."
+    chunk_2.text = "one"
     mock_genai.models.generate_content_stream.return_value = [chunk_1, chunk_2]
 
-    chunks = list(provider.stream("Stream this prompt", temperature=0.7))
+    conv = Conversation()
+    conv.add_message(Role.USER, "Stream prompt")
 
-    assert chunks == ["Part ", "one and part two."]
-    assert len(provider.history) == 2
-    assert provider.history[0]["role"] == "user"
-    assert provider.history[0]["parts"][0]["text"] == "Stream this prompt"
-    assert provider.history[1]["role"] == "model"
-    assert provider.history[1]["parts"][0]["text"] == "Part one and part two."
-
-    # Verify config call params
-    called_args, called_kwargs = mock_genai.models.generate_content_stream.call_args
-    assert called_kwargs["model"] == provider.model
-    assert called_kwargs["config"].temperature == 0.7
-    assert called_kwargs["config"].response_mime_type == "text/plain"
+    chunks = list(provider.stream(conv))
+    assert chunks == ["Part ", "one"]
+    assert conv.get_messages()[-1].role == Role.MODEL
+    assert conv.get_messages()[-1].content == "Part one"

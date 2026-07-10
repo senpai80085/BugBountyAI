@@ -7,6 +7,8 @@ from core.executor import Executor
 from core.logger import logger
 from core.registry import ToolRegistry
 from engine.workflow import WorkflowEngine
+from memory.conversation import Conversation, Role
+from models.ai import PlanDecision
 from models.capability import Capability
 from models.context import ScanContext
 from models.objective import Objective, PlanningMode
@@ -194,15 +196,17 @@ class Planner:
         prompt = (
             f"Analyze this target objective: '{objective_text}'.\n"
             f"Available tools: {cap_names}.\n"
-            f"Select the best workflow to run. Currently available workflows: ['recon'].\n"
-            f"Respond with a JSON object containing:\n"
-            f'{{"workflow": "workflow_name", "reasoning": "your reasoning explanation"}}'
+            f"Select the best workflow to run. Currently available workflows: ['recon']."
         )
 
-        res = self.provider.chat(prompt, json_mode=True)
-        if isinstance(res, dict) and "workflow" in res:
-            wf_name = str(res["workflow"]).strip()
-            reasoning = str(res.get("reasoning", "AI recommended selection."))
+        conversation = Conversation()
+        conversation.add_message(Role.SYSTEM, "You are a professional scan planner assistant.")
+        conversation.add_message(Role.USER, prompt)
+
+        decision = self.provider.structured(conversation, PlanDecision)
+        if isinstance(decision, PlanDecision):
+            wf_name = decision.selected_workflow.strip()
+            reasoning = decision.reasoning
             
             # Confirm workflow file exists on disk
             wf_file = self.workflow_engine.workflows_dir / f"{wf_name}.yaml"

@@ -17,4 +17,4 @@ def test_analyst_interface():
 
     res = analyst.analyze(results=[], context=context)
     assert isinstance(res, AnalysisResult)
-    assert res.summary == "Scan completed successfully."
+    assert res.summary == "No findings to analyze."

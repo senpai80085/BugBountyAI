@@ -9,6 +9,7 @@ from engine.workflow import WorkflowEngine
 from models.context import ScanContext
 from models.objective import Objective, PlanningMode
 from models.plan import PlanResult
+from models.ai import PlanDecision
 from models.tool import ToolMetadata, ToolResult
 from tools.base import Tool
 
@@ -122,7 +123,14 @@ def test_auto_mode_rule_based_matching(mock_registry, mock_workflow_engine):
 def test_auto_mode_ai_recommendation(mock_registry, mock_workflow_engine):
     """Verify AI planner suggests workflows correctly when enabled."""
     mock_provider = MagicMock()
-    mock_provider.chat.return_value = {"workflow": "recon", "reasoning": "AI matched target scan requirements"}
+    mock_provider.structured.return_value = PlanDecision(
+        selected_workflow="recon",
+        execution_strategy="parallel",
+        reasoning="AI matched target scan requirements",
+        expected_outputs=["subdomains.txt"],
+        confidence=0.95,
+        estimated_duration=120.0
+    )
     
     with patch("pathlib.Path.exists", return_value=True):
         planner = Planner(registry=mock_registry, workflow_engine=mock_workflow_engine, provider=mock_provider)
@@ -139,7 +147,7 @@ def test_auto_mode_ai_recommendation(mock_registry, mock_workflow_engine):
 def test_auto_mode_ai_fails_fallback(mock_registry, mock_workflow_engine):
     """Verify fallback selection is used if AI provider fails."""
     mock_provider = MagicMock()
-    mock_provider.chat.side_effect = Exception("API error")
+    mock_provider.structured.side_effect = Exception("API error")
     
     planner = Planner(registry=mock_registry, workflow_engine=mock_workflow_engine, provider=mock_provider)
     context = ScanContext(target="example.com", workspace="ws", loot_dir="l", report_dir="r")
