@@ -23,14 +23,16 @@ class NucleiTool(Tool):
 
     def validate(self, **kwargs) -> None:
         """
-        Validate that either a target URL/domain or an input file path is provided.
+        Validate that either a target URL/domain/list or an input file path is provided.
         """
         if "target" not in kwargs and "input_file" not in kwargs:
             raise ValueError("Either 'target' or 'input_file' must be provided for nuclei.")
 
         if "target" in kwargs:
             target = kwargs["target"]
-            if not isinstance(target, str) or not target.strip():
+            if not isinstance(target, (str, list)):
+                raise ValueError("'target' must be a string or a list of strings.")
+            if isinstance(target, str) and not target.strip():
                 raise ValueError("'target' must be a non-empty string.")
 
         if "input_file" in kwargs:
@@ -44,7 +46,12 @@ class NucleiTool(Tool):
         """
         args = ["-o", "-"]
         if "target" in kwargs:
-            args.extend(["-u", kwargs["target"]])
+            target = kwargs["target"]
+            if isinstance(target, list):
+                for t in target:
+                    args.extend(["-u", str(t)])
+            else:
+                args.extend(["-u", target])
         elif "input_file" in kwargs:
             args.extend(["-l", kwargs["input_file"]])
         return Command(executable="nuclei", args=args)

@@ -27,7 +27,9 @@ class NaabuTool(Tool):
         if "target" not in kwargs:
             raise ValueError("Parameter 'target' is required for naabu.")
         target = kwargs["target"]
-        if not isinstance(target, str) or not target.strip():
+        if not isinstance(target, (str, list)):
+            raise ValueError("Parameter 'target' must be a string or a list of strings.")
+        if isinstance(target, str) and not target.strip():
             raise ValueError("Parameter 'target' must be a non-empty string.")
 
     def build(self, **kwargs) -> Command:
@@ -35,7 +37,14 @@ class NaabuTool(Tool):
         Build the naabu execution Command.
         """
         target = kwargs["target"]
-        return Command(executable="naabu", args=["-host", target, "-o", "-"])
+        args = []
+        if isinstance(target, list):
+            for t in target:
+                args.extend(["-host", str(t)])
+        else:
+            args.extend(["-host", target])
+        args.extend(["-o", "-"])
+        return Command(executable="naabu", args=args)
 
     def parse(self, stdout: str) -> dict[str, Any]:
         """

@@ -1,0 +1,23 @@
+name: recon
+steps:
+  - tool: subfinder
+    args:
+      domain: "{{ target }}"
+  - tool: httpx
+    args:
+      target: "{{ subfinder.subdomains }}"
+    depends_on:
+      - subfinder
+  - tool: katana
+    args:
+      target: "{{ httpx.endpoints }}"
+    depends_on:
+      - httpx
+  - tool: naabu
+    args:
+      target: "{{ target }}"
+  - tool: nuclei
+    args:
+      target: "{{ subfinder.subdomains }}"
+    depends_on:
+      - subfinder

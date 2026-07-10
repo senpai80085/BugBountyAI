@@ -27,7 +27,9 @@ class KatanaTool(Tool):
         if "target" not in kwargs:
             raise ValueError("Parameter 'target' is required for katana.")
         target = kwargs["target"]
-        if not isinstance(target, str) or not target.strip():
+        if not isinstance(target, (str, list)):
+            raise ValueError("Parameter 'target' must be a string or a list of strings.")
+        if isinstance(target, str) and not target.strip():
             raise ValueError("Parameter 'target' must be a non-empty string.")
 
     def build(self, **kwargs) -> Command:
@@ -35,7 +37,14 @@ class KatanaTool(Tool):
         Build the katana execution Command.
         """
         target = kwargs["target"]
-        return Command(executable="katana", args=["-u", target, "-o", "-"])
+        args = []
+        if isinstance(target, list):
+            for t in target:
+                args.extend(["-u", str(t)])
+        else:
+            args.extend(["-u", target])
+        args.extend(["-o", "-"])
+        return Command(executable="katana", args=args)
 
     def parse(self, stdout: str) -> dict[str, Any]:
         """

@@ -1,0 +1,15 @@
+ssh:
+  host: 192.168.164.128
+  port: 22
+  username: kali
+  private_key: C:\Users\priya\.ssh\id_ed25519
+  timeout: 30
+
+ai:
+  provider: gemini
+  model: gemini-2.5-flash
+
+paths:
+  reports: reports
+  loot: loot
+  logs: logs
