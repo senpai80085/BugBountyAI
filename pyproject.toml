@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bugbounty"
+version = "1.0.0"
+description = "AI-native Bug Bounty scanning engine"
+authors = [
+    { name = "BugBountyAI" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml",
+    "paramiko",
+    "pydantic",
+    "google-genai",
+    "jinja2",
+    "tenacity",
+    "pytest",
+    "mypy",
+    "ruff"
+]
+
+[project.scripts]
+bugbounty = "main:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

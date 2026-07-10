@@ -24,7 +24,7 @@ def test_subfinder_build():
     cmd = tool.build(domain="example.com")
     assert isinstance(cmd, Command)
     assert cmd.executable == "subfinder"
-    assert cmd.args == ["-d", "example.com", "-o", "-"]
+    assert cmd.args == ["-d", "example.com", "-silent"]
 
 
 def test_subfinder_execution():

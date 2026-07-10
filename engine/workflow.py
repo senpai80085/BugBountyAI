@@ -44,6 +44,8 @@ def lookup_path(path_str: str, context: ScanContext) -> Any:
     """
     if path_str == "target":
         return context.target
+    if path_str == "scan_id":
+        return context.scan_id
 
     parts = path_str.split(".")
     tool_name = parts[0]
@@ -65,7 +67,9 @@ def lookup_path(path_str: str, context: ScanContext) -> Any:
         raise ValueError(f"Attribute/key '{attr}' not found in results of tool '{tool_name}'.")
 
     for part in parts[2:]:
-        if isinstance(val, dict) and part in val:
+        if isinstance(val, list) and part.isdigit():
+            val = val[int(part)]
+        elif isinstance(val, dict) and part in val:
             val = val[part]
         elif hasattr(val, part):
             val = getattr(val, part)
@@ -159,6 +163,12 @@ class WorkflowEngine:
         Execute workflow steps supporting parallel execution, timeouts, retries,
         and continuous updates to the ScanContext results dict.
         """
+        from core.logger import log_context
+        log_context.scan_id = context.scan_id
+        log_context.workflow = workflow.name
+        log_context.step = "N/A"
+        log_context.tool = "N/A"
+
         logger.info(f"Workflow started: {workflow.name}")
         start_time = time.perf_counter()
 
@@ -170,6 +180,12 @@ class WorkflowEngine:
         lock = threading.Lock()
 
         def execute_step_with_retry(step: WorkflowStep) -> ToolResult:
+            from core.logger import log_context
+            log_context.scan_id = context.scan_id
+            log_context.workflow = workflow.name
+            log_context.step = step.tool
+            log_context.tool = step.tool
+
             logger.info(f"Step started: {step.tool}")
             
             resolved_args = {}

@@ -17,27 +17,29 @@ def test_nuclei_build():
     tool = NucleiTool()
     cmd = tool.build(target="example.com")
     assert cmd.executable == "nuclei"
-    assert cmd.args == ["-o", "-", "-u", "example.com"]
+    assert cmd.args == ["-silent", "-jsonl", "-u", "example.com"]
 
 
 def test_nuclei_parse():
-    """Verify that NucleiTool parses nuclei standard findings lines."""
+    """Verify that NucleiTool parses nuclei JSON-lines findings."""
     tool = NucleiTool()
     parsed = tool.parse(
-        "[git-core-config] [http] [medium] http://example.com/.git/config\n"
-        "[tech-detect] [http] [info] http://example.com\n"
+        '{"template-id":"git-core-config","info":{"name":"Git config leak","severity":"medium","description":"Git config exposed"},"matched-at":"http://example.com/.git/config"}\n'
+        '{"template-id":"tech-detect","info":{"name":"Technology detection","severity":"info"},"host":"http://example.com"}\n'
     )
     vulns = parsed["vulnerabilities"]
     assert len(vulns) == 2
     assert vulns[0] == {
         "template_id": "git-core-config",
-        "protocol": "http",
+        "name": "Git config leak",
         "severity": "medium",
-        "url": "http://example.com/.git/config"
+        "matched_at": "http://example.com/.git/config",
+        "description": "Git config exposed"
     }
     assert vulns[1] == {
         "template_id": "tech-detect",
-        "protocol": "http",
+        "name": "Technology detection",
         "severity": "info",
-        "url": "http://example.com"
+        "matched_at": "http://example.com",
+        "description": ""
     }

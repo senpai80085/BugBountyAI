@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from models.finding import Finding
+from models.artifact import Artifact
+
+if TYPE_CHECKING:
+    from models.plan import PlanResult
 
 
 @dataclass(frozen=True)
@@ -33,3 +38,20 @@ class ScanReport:
     metadata: ReportMetadata
     summary: str
     findings: list[Finding] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    """
+    Structured execution result summarizing the entire bug bounty scan pipeline.
+    """
+    scan_id: str
+    target: str
+    started_at: datetime
+    finished_at: datetime
+    duration: float
+    engine_version: str
+    success: bool
+    plan_result: "PlanResult"
+    analysis_result: AnalysisResult
+    artifacts: list[Artifact] = field(default_factory=list)

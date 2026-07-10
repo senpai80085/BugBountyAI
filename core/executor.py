@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from core.backend import ExecutionBackend, ExecutionResult
 from core.command import Command
 
@@ -12,6 +13,7 @@ class Executor:
 
     def __init__(self, backend: ExecutionBackend) -> None:
         self.backend = backend
+        self.artifact_manager: Any = None
 
     def run(self, command: Command) -> ExecutionResult:
         """

@@ -5,7 +5,7 @@ from tools.katana import KatanaTool
 def test_katana_validation():
     """Verify that KatanaTool validates inputs correctly."""
     tool = KatanaTool()
-    with pytest.raises(ValueError, match="Parameter 'target' is required"):
+    with pytest.raises(ValueError, match="Either 'target' or 'input_file'"):
         tool.validate()
 
     with pytest.raises(ValueError, match="must be a non-empty string"):
@@ -17,7 +17,10 @@ def test_katana_build():
     tool = KatanaTool()
     cmd = tool.build(target="https://example.com")
     assert cmd.executable == "katana"
-    assert cmd.args == ["-u", "https://example.com", "-o", "-"]
+    assert cmd.args == ["-silent", "-d", "2", "-u", "https://example.com"]
+
+    cmd2 = tool.build(input_file="alive.txt")
+    assert cmd2.args == ["-silent", "-d", "2", "-list", "alive.txt"]
 
 
 def test_katana_parse():

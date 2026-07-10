@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.command import Command
+from models.artifact import Artifact
 
 
 @dataclass(frozen=True)
@@ -31,5 +32,5 @@ class ToolResult:
     stdout: str
     stderr: str
     duration: float
-    artifacts: list[str] = field(default_factory=list)
+    artifacts: list[Artifact] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

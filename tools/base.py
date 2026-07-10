@@ -1,3 +1,4 @@
+import os
 import time
 from abc import ABC, abstractmethod
 from typing import Any
@@ -41,6 +42,7 @@ class Tool(ABC):
     def execute(self, executor: Executor, **kwargs) -> ToolResult:
         """
         Execute the tool via the given Executor, parse stdout, and return a ToolResult.
+        If output_file is specified, registers the output artifact using Executor's artifact_manager.
         """
         self.validate(**kwargs)
         command = self.build(**kwargs)
@@ -58,6 +60,18 @@ class Tool(ABC):
                 success = False
                 parsed_data = {"parsing_error": str(e)}
 
+        # Register remote file artifact if execution was successful and output_file was requested
+        artifacts = []
+        output_file = kwargs.get("output_file")
+        if success and output_file and getattr(executor, "artifact_manager", None) is not None:
+            filename = os.path.basename(output_file)
+            artifact = executor.artifact_manager.register_artifact(
+                artifact_type=self.metadata.name,
+                filename=filename,
+                remote_path=output_file
+            )
+            artifacts.append(artifact)
+
         return ToolResult(
             command=command,
             success=success,
@@ -65,6 +79,6 @@ class Tool(ABC):
             stdout=result.stdout,
             stderr=result.stderr,
             duration=duration,
-            artifacts=[],
+            artifacts=artifacts,
             metadata=parsed_data,
         )

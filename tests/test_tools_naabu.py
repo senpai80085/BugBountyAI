@@ -5,7 +5,7 @@ from tools.naabu import NaabuTool
 def test_naabu_validation():
     """Verify that NaabuTool validates host inputs correctly."""
     tool = NaabuTool()
-    with pytest.raises(ValueError, match="Parameter 'target' is required"):
+    with pytest.raises(ValueError, match="Either 'target' or 'input_file'"):
         tool.validate()
 
     with pytest.raises(ValueError, match="must be a non-empty string"):
@@ -17,7 +17,10 @@ def test_naabu_build():
     tool = NaabuTool()
     cmd = tool.build(target="127.0.0.1")
     assert cmd.executable == "naabu"
-    assert cmd.args == ["-host", "127.0.0.1", "-o", "-"]
+    assert cmd.args == ["-silent", "-top-ports", "100", "-host", "127.0.0.1"]
+
+    cmd2 = tool.build(input_file="subs.txt")
+    assert cmd2.args == ["-silent", "-top-ports", "100", "-list", "subs.txt"]
 
 
 def test_naabu_parse():

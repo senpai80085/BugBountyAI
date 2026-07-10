@@ -1,4 +1,4 @@
-import re
+import json
 from typing import Any
 
 from core.command import Command
@@ -44,7 +44,8 @@ class NucleiTool(Tool):
         """
         Build the nuclei execution Command.
         """
-        args = ["-o", "-"]
+        args = ["-silent", "-jsonl"]
+        
         if "target" in kwargs:
             target = kwargs["target"]
             if isinstance(target, list):
@@ -54,30 +55,41 @@ class NucleiTool(Tool):
                 args.extend(["-u", target])
         elif "input_file" in kwargs:
             args.extend(["-l", kwargs["input_file"]])
+
+        if "output_file" in kwargs:
+            args.extend(["-o", kwargs["output_file"]])
+
         return Command(executable="nuclei", args=args)
 
     def parse(self, stdout: str) -> dict[str, Any]:
         """
-        Parse nuclei stdout lines in format '[template-id] [protocol] [severity] target-url'.
+        Parse nuclei stdout JSON-lines output.
         """
         findings = []
-        pattern = re.compile(r"^\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\]\s+(\S+)")
-
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
                 continue
-            match = pattern.match(line)
-            if match:
-                template_id = match.group(1)
-                protocol = match.group(2)
-                severity = match.group(3)
-                url = match.group(4)
+            try:
+                data = json.loads(line)
+                info = data.get("info", {})
+                template_id = data.get("template-id") or data.get("template_id")
+                if not template_id:
+                    continue
+                # Extract standard fields
+                name = info.get("name") or data.get("name") or "unknown"
+                severity = info.get("severity") or data.get("severity") or "info"
+                matched_at = data.get("matched-at") or data.get("matched_at") or data.get("host") or ""
+                description = info.get("description") or data.get("description") or ""
+
                 findings.append({
                     "template_id": template_id,
-                    "protocol": protocol,
+                    "name": name,
                     "severity": severity,
-                    "url": url
+                    "matched_at": matched_at,
+                    "description": description
                 })
+            except Exception:
+                pass
 
         return {"vulnerabilities": findings}

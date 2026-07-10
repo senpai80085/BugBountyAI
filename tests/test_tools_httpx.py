@@ -22,22 +22,40 @@ def test_httpx_build():
     tool = HttpxTool()
     cmd1 = tool.build(target="https://example.com")
     assert cmd1.executable == "httpx"
-    assert cmd1.args == ["-sc", "-title", "-o", "-", "-u", "https://example.com"]
+    assert cmd1.args == ["-silent", "-json", "-u", "https://example.com"]
 
     cmd2 = tool.build(input_file="subdomains.txt")
-    assert cmd2.args == ["-sc", "-title", "-o", "-", "-l", "subdomains.txt"]
+    assert cmd2.args == ["-silent", "-json", "-l", "subdomains.txt"]
 
 
 def test_httpx_parse():
     """Verify that HttpxTool parses probed endpoints output."""
     tool = HttpxTool()
     parsed = tool.parse(
-        "https://example.com [200] [Example Title]\n"
-        "http://unauthorized.com [403]\n"
-        "https://broken.com\n"
+        '{"url":"https://example.com","status_code":200,"title":"Example Title","tech":["Nginx"]}\n'
+        '{"url":"http://unauthorized.com","status_code":403}\n'
+        '{"url":"https://broken.com"}\n'
     )
     endpoints = parsed["endpoints"]
     assert len(endpoints) == 3
-    assert endpoints[0] == {"url": "https://example.com", "status_code": 200, "title": "Example Title"}
-    assert endpoints[1] == {"url": "http://unauthorized.com", "status_code": 403, "title": None}
-    assert endpoints[2] == {"url": "https://broken.com", "status_code": None, "title": None}
+    assert endpoints[0] == {
+        "url": "https://example.com",
+        "status_code": 200,
+        "title": "Example Title",
+        "technologies": ["Nginx"],
+        "content_length": 0
+    }
+    assert endpoints[1] == {
+        "url": "http://unauthorized.com",
+        "status_code": 403,
+        "title": None,
+        "technologies": [],
+        "content_length": 0
+    }
+    assert endpoints[2] == {
+        "url": "https://broken.com",
+        "status_code": None,
+        "title": None,
+        "technologies": [],
+        "content_length": 0
+    }

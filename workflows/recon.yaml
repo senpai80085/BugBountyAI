@@ -3,21 +3,46 @@ steps:
   - tool: subfinder
     args:
       domain: "{{ target }}"
+      output_file: "/tmp/bugbounty/{{ scan_id }}/subdomains.txt"
+    timeout: 300
+    retry: 1
+
   - tool: httpx
     args:
-      target: "{{ subfinder.subdomains }}"
+      input_file: "{{ subfinder.artifacts.0.remote_path }}"
+      output_file: "/tmp/bugbounty/{{ scan_id }}/alive.txt"
     depends_on:
       - subfinder
+    timeout: 300
+    retry: 1
+
   - tool: katana
     args:
-      target: "{{ httpx.endpoints }}"
+      input_file: "{{ httpx.artifacts.0.remote_path }}"
+      output_file: "/tmp/bugbounty/{{ scan_id }}/urls.txt"
     depends_on:
       - httpx
+    parallel: true
+    continue_on_error: true
+    timeout: 300
+    retry: 1
+
   - tool: naabu
     args:
-      target: "{{ target }}"
-  - tool: nuclei
-    args:
-      target: "{{ subfinder.subdomains }}"
+      input_file: "{{ subfinder.artifacts.0.remote_path }}"
+      output_file: "/tmp/bugbounty/{{ scan_id }}/ports.txt"
     depends_on:
       - subfinder
+    parallel: true
+    continue_on_error: true
+    timeout: 300
+    retry: 1
+
+  - tool: nuclei
+    args:
+      input_file: "{{ httpx.artifacts.0.remote_path }}"
+      output_file: "/tmp/bugbounty/{{ scan_id }}/nuclei.jsonl"
+    depends_on:
+      - httpx
+    timeout: 300
+    retry: 1

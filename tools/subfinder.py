@@ -35,7 +35,13 @@ class SubfinderTool(Tool):
         Build the subfinder Command execution.
         """
         domain = kwargs["domain"]
-        return Command(executable="subfinder", args=["-d", domain, "-o", "-"])
+        args = ["-d", domain, "-silent"]
+        
+        # Support optional output_file writing
+        if "output_file" in kwargs:
+            args.extend(["-o", kwargs["output_file"]])
+            
+        return Command(executable="subfinder", args=args)
 
     def parse(self, stdout: str) -> dict[str, Any]:
         """

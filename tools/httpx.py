@@ -1,4 +1,4 @@
-import re
+import json
 from typing import Any
 
 from core.command import Command
@@ -44,7 +44,8 @@ class HttpxTool(Tool):
         """
         Build the httpx execution Command.
         """
-        args = ["-sc", "-title", "-o", "-"]
+        args = ["-silent", "-json"]
+        
         if "target" in kwargs:
             target = kwargs["target"]
             if isinstance(target, list):
@@ -54,28 +55,40 @@ class HttpxTool(Tool):
                 args.extend(["-u", target])
         elif "input_file" in kwargs:
             args.extend(["-l", kwargs["input_file"]])
+
+        if "output_file" in kwargs:
+            args.extend(["-o", kwargs["output_file"]])
+
         return Command(executable="httpx", args=args)
 
     def parse(self, stdout: str) -> dict[str, Any]:
         """
-        Parse httpx stdout containing 'url [status_code] [title]' lines.
+        Parse httpx stdout containing JSON-lines representation of probed hosts.
         """
-        results = []
-        pattern = re.compile(r"^(https?://\S+)(?:\s+\[(\d+)\])?(?:\s+\[(.*?)\])?")
-
+        endpoints = []
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
                 continue
-            match = pattern.match(line)
-            if match:
-                url = match.group(1)
-                status_code = int(match.group(2)) if match.group(2) else None
-                title = match.group(3) if match.group(3) else None
-                results.append({
-                    "url": url,
-                    "status_code": status_code,
-                    "title": title
-                })
+            try:
+                data = json.loads(line)
+                url = data.get("url")
+                if not url:
+                    continue
+                # Extract HTTP title, status code, technology tags, and length
+                status_code = data.get("status_code") or data.get("status-code")
+                title = data.get("title")
+                techs = data.get("tech") or data.get("technologies") or []
+                length = data.get("content_length") or data.get("content-length") or 0
 
-        return {"endpoints": results}
+                endpoints.append({
+                    "url": url,
+                    "status_code": int(status_code) if status_code is not None else None,
+                    "title": title,
+                    "technologies": list(techs) if isinstance(techs, (list, tuple)) else [],
+                    "content_length": int(length) if length is not None else 0
+                })
+            except Exception:
+                pass
+
+        return {"endpoints": endpoints}
