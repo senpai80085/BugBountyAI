@@ -26,12 +26,33 @@ dependencies = [
 ]
 
 [project.scripts]
-bugbounty = "bugbounty:main"
+bugbounty = "main:main"
+
+[tool.setuptools]
+py-modules = ["bugbounty", "main"]
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["core*", "engine*", "models*", "tools*", "providers*", "memory*", "bugbounty*"]
-exclude = ["logs*", "loot*", "reports*", "prompts*", "config*", "templates*", "targets*", "wordlists*", "workflows*", "tests*"]
+include = [
+    "core*",
+    "engine*",
+    "memory*",
+    "models*",
+    "providers*",
+    "tools*",
+    "utils*"
+]
+exclude = [
+    "tests*",
+    "logs*",
+    "loot*",
+    "reports*",
+    "templates*",
+    "targets*",
+    "wordlists*",
+    "workflows*",
+    "prompts*",
+    "config*"
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
