@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,7 @@ from core.logger import logger
 class SSHClient:
     """
     Thread-safe client wrapper for Paramiko SSH and SFTP file operations.
-    Uses a centralized lock to serialize concurrent command executions and file operations.
+    Centralized execution layer to run commands and manage remote files.
     """
 
     def __init__(self) -> None:
@@ -75,15 +77,14 @@ class SSHClient:
     def execute(self, command: str) -> dict[str, Any]:
         """
         Execute command on the remote host and return command outcome.
-        Streams stdout/stderr in real-time, logging lines continuously.
+        Measures duration, sends a heartbeat every 5s, and logs detailed error on failure.
         Protected by self.lock to ensure thread-safe socket usage.
         """
-        import time
-
         with self.lock:
             self.connect()
-            logger.info(command)
+            logger.info(f"Command started: {command}")
 
+            start_time = time.perf_counter()
             assert self.client is not None
             stdin, stdout, stderr = self.client.exec_command(
                 command,
@@ -95,53 +96,71 @@ class SSHClient:
             stdout_chunks: list[str] = []
             stderr_chunks: list[str] = []
 
-            # Stream output while the process is running
+            last_heartbeat = start_time
+
+            # Parse clean executable name for the heartbeat (strip shell exports if present)
+            cmd_clean = command
+            if "export PATH=" in cmd_clean and ";" in cmd_clean:
+                cmd_clean = cmd_clean.split(";", 1)[1].strip()
+            parts = cmd_clean.split()
+            exe_name = parts[0] if parts else "command"
+            exe_name = os.path.basename(exe_name)
+
             while not channel.exit_status_ready():
+                # Read stdout
                 if channel.recv_ready():
                     data = channel.recv(4096)
                     if data:
-                        decoded = data.decode(errors="replace")
-                        stdout_chunks.append(decoded)
-                        for line in decoded.splitlines():
-                            if line.strip():
-                                logger.info(line)
+                        stdout_chunks.append(data.decode(errors="replace"))
 
+                # Read stderr
                 if channel.recv_stderr_ready():
                     data = channel.recv_stderr(4096)
                     if data:
-                        decoded = data.decode(errors="replace")
-                        stderr_chunks.append(decoded)
-                        for line in decoded.splitlines():
-                            if line.strip():
-                                logger.error(line)
+                        stderr_chunks.append(data.decode(errors="replace"))
+
+                # Log heartbeat every 5 seconds
+                now = time.perf_counter()
+                elapsed = int(now - start_time)
+                if now - last_heartbeat >= 5.0:
+                    logger.info(f"[RUNNING] {exe_name} ... ({elapsed}s elapsed)")
+                    last_heartbeat = now
 
                 time.sleep(0.1)
 
-            # Flush any remaining data in the buffers after exit status is ready
+            # Flush any remaining buffers
             while channel.recv_ready():
                 data = channel.recv(4096)
                 if data:
-                    decoded = data.decode(errors="replace")
-                    stdout_chunks.append(decoded)
-                    for line in decoded.splitlines():
-                        if line.strip():
-                            logger.info(line)
+                    stdout_chunks.append(data.decode(errors="replace"))
 
             while channel.recv_stderr_ready():
                 data = channel.recv_stderr(4096)
                 if data:
-                    decoded = data.decode(errors="replace")
-                    stderr_chunks.append(decoded)
-                    for line in decoded.splitlines():
-                        if line.strip():
-                            logger.error(line)
+                    stderr_chunks.append(data.decode(errors="replace"))
 
             exit_code = channel.recv_exit_status()
+            duration = time.perf_counter() - start_time
+
+            logger.info(f"Command finished: {command} in {duration:.2f}s with exit code {exit_code}")
+
+            stdout_str = "".join(stdout_chunks)
+            stderr_str = "".join(stderr_chunks)
+
+            # Print detailed block on failure (Step 2 - Most Important)
+            if exit_code != 0:
+                failure_msg = (
+                    f"\nCOMMAND:\n{command}\n\n"
+                    f"EXIT CODE:\n{exit_code}\n\n"
+                    f"STDERR:\n{stderr_str.strip()}\n\n"
+                    f"STDOUT:\n{stdout_str.strip()}"
+                )
+                logger.error(failure_msg)
 
             return {
                 "command": command,
-                "stdout": "".join(stdout_chunks),
-                "stderr": "".join(stderr_chunks),
+                "stdout": stdout_str,
+                "stderr": stderr_str,
                 "exit_code": exit_code,
             }
 
